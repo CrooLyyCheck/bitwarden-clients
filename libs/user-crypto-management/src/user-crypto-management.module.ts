@@ -1,10 +1,10 @@
 import { NgModule } from "@angular/core";
 
 import { SdkService } from "@bitwarden/common/platform/abstractions/sdk/sdk.service";
-import { DialogService } from "@bitwarden/components";
 import { LogService } from "@bitwarden/logging";
 import { safeProvider } from "@bitwarden/ui-common";
 
+import { UserCryptoDialogService } from "./user-crypto-dialog.service.abstraction";
 import { DefaultUserKeyRotationService } from "./user-key-rotation.service";
 import { UserKeyRotationService } from "./user-key-rotation.service.abstraction";
 
@@ -18,7 +18,7 @@ import { UserKeyRotationService } from "./user-key-rotation.service.abstraction"
     safeProvider({
       provide: UserKeyRotationService,
       useClass: DefaultUserKeyRotationService,
-      deps: [SdkService, LogService, DialogService],
+      deps: [SdkService, LogService, UserCryptoDialogService],
     }),
   ],
 })

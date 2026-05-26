@@ -128,9 +128,13 @@ import {
   WebAuthnPrfUnlockService,
   DefaultWebAuthnPrfUnlockService,
   SessionTimeoutSettingsComponentService,
+  DefaultUserCryptoDialogService,
 } from "@bitwarden/key-management-ui";
 import { SerializedMemoryStorageService } from "@bitwarden/storage-core";
-import { UserCryptoManagementModule } from "@bitwarden/user-crypto-management";
+import {
+  UserCryptoDialogService,
+  UserCryptoManagementModule,
+} from "@bitwarden/user-crypto-management";
 import {
   CipherFormGenerationService,
   DefaultSshImportPromptService,
@@ -512,6 +516,11 @@ const safeProviders: SafeProvider[] = [
       ApiService,
       KeyServiceAbstraction,
     ],
+  }),
+  safeProvider({
+    provide: UserCryptoDialogService,
+    useClass: DefaultUserCryptoDialogService,
+    deps: [DialogService],
   }),
 ];
 
