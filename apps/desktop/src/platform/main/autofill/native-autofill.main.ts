@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 
 import { LogService } from "@bitwarden/common/platform/abstractions/log.service";
-import { autofill } from "@bitwarden/desktop-napi";
+import { autofill, passkey_authenticator } from "@bitwarden/desktop-napi";
 
 import { WindowMain } from "../../../main/window.main";
 
@@ -60,6 +60,14 @@ export class NativeAutofillMain {
   }
 
   async init() {
+    if (process.platform === "win32") {
+      try {
+        passkey_authenticator.register();
+      } catch (error) {
+        this.logService.error("Failed to register Windows passkey plugin", error);
+      }
+    }
+
     ipcMain.handle(
       "autofill.runCommand",
       <C extends CommandDefinition>(
@@ -124,6 +132,19 @@ export class NativeAutofillMain {
           status,
         });
       },
+      // LockStatusQueryCallback
+      (error, clientId, sequenceNumber, request) => {
+        if (error) {
+          this.logService.error("autofill.IpcServer.lockStatusQuery", error);
+          this.ipcServer?.completeError(clientId, sequenceNumber, String(error));
+          return;
+        }
+        this.safeSend("autofill.lockStatusQuery", {
+          clientId,
+          sequenceNumber,
+          request,
+        });
+      },
     );
 
     ipcMain.on("autofill.listenerReady", () => {
@@ -135,19 +156,25 @@ export class NativeAutofillMain {
     });
 
     ipcMain.on("autofill.completePasskeyRegistration", (event, data) => {
-      this.logService.debug("autofill.completePasskeyRegistration", data);
+      this.logService.debug("autofill.completePasskeyRegistration");
       const { clientId, sequenceNumber, response } = data;
       this.ipcServer?.completeRegistration(clientId, sequenceNumber, response);
     });
 
     ipcMain.on("autofill.completePasskeyAssertion", (event, data) => {
-      this.logService.debug("autofill.completePasskeyAssertion", data);
+      this.logService.debug("autofill.completePasskeyAssertion");
       const { clientId, sequenceNumber, response } = data;
       this.ipcServer?.completeAssertion(clientId, sequenceNumber, response);
     });
 
+    ipcMain.on("autofill.completeLockStatusQuery", (event, data) => {
+      this.logService.debug("autofill.completeLockStatusQuery");
+      const { clientId, sequenceNumber, response } = data;
+      this.ipcServer?.completeLockStatusQuery(clientId, sequenceNumber, response);
+    });
+
     ipcMain.on("autofill.completeError", (event, data) => {
-      this.logService.debug("autofill.completeError", data);
+      this.logService.debug("autofill.completeError");
       const { clientId, sequenceNumber, error } = data;
       this.ipcServer?.completeError(clientId, sequenceNumber, String(error));
     });

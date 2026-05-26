@@ -286,14 +286,22 @@ impl WebAuthnPlugin {
     where
         T: PluginAuthenticator + Send + Sync + 'static,
     {
-        unimplemented!();
+        let clsid = self.clsid.as_guid();
+        com::register_server(&clsid, authenticator)
+    }
+
+    /// Initializes the COM library for use on the calling thread.
+    ///
+    /// Must be called before [WebAuthnPlugin::register_server].
+    pub fn initialize() -> Result<(), WinWebAuthnError> {
+        com::initialize()
     }
 
     /// Uninitializes the COM library for the calling thread.
     ///
     /// Not thread-safe: This must be called from the same thread that called [register_server].
     pub fn shutdown_server() -> Result<(), WinWebAuthnError> {
-        unimplemented!()
+        com::uninitialize()
     }
 
     /// Perform user verification related to an associated MakeCredential or GetAssertion request.

@@ -100,7 +100,7 @@ impl<'a> PluginMakeCredentialRequest<'a> {
     /// - `ptr` must have been allocated by Windows COM
     /// - pbEncodedRequest must be non-null and have the length specified in cbEncodedRequest.
     /// - pbRequestSignature must be non-null and have the length specified in cbRequestSignature.
-    pub(super) unsafe fn try_from_ptr(
+    pub(in crate::api) unsafe fn try_from_ptr(
         request: &'a WEBAUTHN_PLUGIN_OPERATION_REQUEST,
     ) -> Result<PluginMakeCredentialRequest<'a>, WinWebAuthnError> {
         if !matches!(
