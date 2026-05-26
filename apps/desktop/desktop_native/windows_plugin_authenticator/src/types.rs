@@ -1,16 +1,11 @@
 /// User verification requirement as defined by WebAuthn spec
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UserVerificationRequirement {
     Required,
+    #[default]
     Preferred,
     Discouraged,
-}
-
-impl Default for UserVerificationRequirement {
-    fn default() -> Self {
-        UserVerificationRequirement::Preferred
-    }
 }
 
 impl From<u32> for UserVerificationRequirement {
@@ -24,9 +19,9 @@ impl From<u32> for UserVerificationRequirement {
     }
 }
 
-impl Into<String> for UserVerificationRequirement {
-    fn into(self) -> String {
-        match self {
+impl From<UserVerificationRequirement> for String {
+    fn from(value: UserVerificationRequirement) -> Self {
+        match value {
             UserVerificationRequirement::Required => "required".to_string(),
             UserVerificationRequirement::Preferred => "preferred".to_string(),
             UserVerificationRequirement::Discouraged => "discouraged".to_string(),

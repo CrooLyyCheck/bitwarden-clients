@@ -110,7 +110,7 @@
                 </uap:Extension>
                 <com:Extension Category="windows.comServer">
                     <com:ComServer>
-                        <com:ExeServer Executable="${executable}" DisplayName="Bitwarden Passkey Manager">
+                        <com:ExeServer Executable="${executable}" Arguments="--windows-passkey-plugin" DisplayName="Bitwarden Passkey Manager">
                             <com:Class Id="0f7dc5d9-69ce-4652-8572-6877fd695062" DisplayName="Bitwarden Passkey Manager" />
                         </com:ExeServer>
                     </com:ComServer>

@@ -1,20 +1,20 @@
-use std::collections::HashMap;
-use std::sync::{mpsc::Receiver, Arc};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{mpsc::Receiver, Arc},
+    time::Duration,
+};
 
 use win_webauthn::{
     plugin::{PluginMakeCredentialRequest, PluginMakeCredentialResponse},
     CtapTransport,
 };
 
-use crate::ipc2::CallbackError;
-use crate::util::create_context_string;
 use crate::{
     ipc2::{
-        PasskeyRegistrationRequest, PasskeyRegistrationResponse, Position, TimedCallback,
-        UserVerification, WindowsProviderClient,
+        CallbackError, PasskeyRegistrationRequest, PasskeyRegistrationResponse, Position,
+        TimedCallback, UserVerification, WindowsProviderClient,
     },
-    util::HwndExt,
+    util::{create_context_string, HwndExt},
 };
 
 pub fn make_credential(
@@ -72,12 +72,12 @@ pub fn make_credential(
     // Create Windows registration request
     let registration_request = PasskeyRegistrationRequest {
         rp_id: rpid.clone(),
-        user_handle: user_handle,
-        user_name: user_name,
+        user_handle,
+        user_name,
         // user_display_name: user_info.2,
         client_data_hash,
         excluded_credentials,
-        user_verification: user_verification,
+        user_verification,
         supported_algorithms,
         client_window_handle,
         window_xy: Position {
@@ -90,7 +90,7 @@ pub fn make_credential(
     tracing::debug!("Prepared make credential request");
 
     if let Ok(()) = cancellation_token.try_recv() {
-        return Err(format!("Request {:?} cancelled", request.transaction_id))?;
+        return Err(format!("Request {:?} cancelled", request.transaction_id).into());
     }
 
     // Send registration request

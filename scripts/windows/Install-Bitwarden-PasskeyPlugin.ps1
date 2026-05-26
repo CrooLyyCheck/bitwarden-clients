@@ -81,7 +81,7 @@ Write-Host "Dodawanie certyfikatu do LocalMachine\\TrustedPeople..."
 Import-Certificate -FilePath $CertificatePath -CertStoreLocation "Cert:\LocalMachine\TrustedPeople" | Out-Null
 
 Write-Host "Instalowanie AppX..."
-Add-AppxPackage -Path $PackagePath -ForceApplicationShutdown
+Add-AppxPackage -Path $PackagePath -ForceApplicationShutdown -ForceUpdateFromAnyVersion
 
 Write-Host ""
 Write-Host "Gotowe. Uruchom Bitwarden z menu Start." -ForegroundColor Green

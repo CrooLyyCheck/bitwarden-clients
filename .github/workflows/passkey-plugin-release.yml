@@ -134,10 +134,12 @@ jobs:
             --win appx `
             --x64 `
             --publish never `
+            --config.buildNumber=${{ github.run_number }} `
             --config.appId=com.croolyycheck.bitwarden.passkey `
             --config.appx.identityName="$env:APPX_IDENTITY" `
             --config.appx.publisher="$env:APPX_PUBLISHER" `
             --config.appx.publisherDisplayName="$env:APPX_PUBLISHER_DISPLAY_NAME" `
+            --config.appx.setBuildNumber=true `
             --config.appx.artifactName='Bitwarden-Passkey-Plugin-${version}-${arch}.${ext}'
 
       - name: Assemble release bundle

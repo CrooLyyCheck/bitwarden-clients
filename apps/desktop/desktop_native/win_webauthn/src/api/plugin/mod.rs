@@ -73,7 +73,13 @@ impl TryFrom<&str> for Clsid {
     type Error = WinWebAuthnError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let wstr = value.to_utf16();
+        let value = value.trim();
+        let clsid_string = if value.starts_with('{') && value.ends_with('}') {
+            value.to_owned()
+        } else {
+            format!("{{{value}}}")
+        };
+        let wstr = clsid_string.to_utf16();
         let clsid = unsafe { CLSIDFromString(PCWSTR::from_raw(wstr.as_ptr())) }.map_err(|err| {
             WinWebAuthnError::with_cause(ErrorKind::InvalidArguments, "Failed to parse CLSID", err)
         })?;
@@ -391,5 +397,14 @@ mod tests {
     fn test_parse_clsid_to_guid() {
         let result = Clsid::try_from(CLSID);
         assert!(result.is_ok(), "CLSID parsing should succeed");
+    }
+
+    #[test]
+    fn test_parse_clsid_without_braces_to_guid() {
+        let result = Clsid::try_from(CLSID.trim_matches(['{', '}']));
+        assert!(
+            result.is_ok(),
+            "CLSID parsing should tolerate missing braces"
+        );
     }
 }

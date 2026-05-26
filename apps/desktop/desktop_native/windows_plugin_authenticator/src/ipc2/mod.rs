@@ -18,7 +18,6 @@ mod assertion;
 mod lock_status;
 mod registration;
 
-use crate::ipc2::lock_status::{GetLockStatusCallback, LockStatusRequest};
 pub use assertion::{
     PasskeyAssertionRequest, PasskeyAssertionResponse, PasskeyAssertionWithoutUserInterfaceRequest,
     PreparePasskeyAssertionCallback,
@@ -26,6 +25,8 @@ pub use assertion::{
 pub use registration::{
     PasskeyRegistrationRequest, PasskeyRegistrationResponse, PreparePasskeyRegistrationCallback,
 };
+
+use crate::ipc2::lock_status::{GetLockStatusCallback, LockStatusRequest};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,7 +95,8 @@ pub struct NativeStatus {
     value: String,
 }
 
-// In our callback management, 0 is a reserved sequence number indicating that a message does not have a callback.
+// In our callback management, 0 is a reserved sequence number indicating that a message does not
+// have a callback.
 const NO_CALLBACK_INDICATOR: u32 = 0;
 
 impl WindowsProviderClient {
@@ -108,7 +110,8 @@ impl WindowsProviderClient {
 
         let client = WindowsProviderClient {
             to_server_send,
-            response_callbacks_counter: AtomicU32::new(1), // Start at 1 since 0 is reserved for "no callback" scenarios
+            // Start at 1 since 0 is reserved for "no callback" scenarios.
+            response_callbacks_counter: AtomicU32::new(1),
             response_callbacks_queue: Arc::new(Mutex::new(HashMap::new())),
             connection_status: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
@@ -290,9 +293,13 @@ pub enum CallbackError {
     Cancelled,
 }
 
+type CallbackResult<T> = Result<T, BitwardenError>;
+type SharedCallbackSender<T> = Arc<Mutex<Option<Sender<CallbackResult<T>>>>>;
+type SharedCallbackReceiver<T> = Arc<Mutex<Receiver<CallbackResult<T>>>>;
+
 pub struct TimedCallback<T> {
-    tx: Arc<Mutex<Option<Sender<Result<T, BitwardenError>>>>>,
-    rx: Arc<Mutex<Receiver<Result<T, BitwardenError>>>>,
+    tx: SharedCallbackSender<T>,
+    rx: SharedCallbackReceiver<T>,
 }
 
 impl<T: Send + 'static> TimedCallback<T> {
@@ -314,7 +321,10 @@ impl<T: Send + 'static> TimedCallback<T> {
             let tx2 = tx.clone();
             let cancellation_token = Mutex::new(cancellation_token);
             std::thread::spawn(move || {
-                if let Ok(()) = cancellation_token.lock().unwrap().recv_timeout(timeout) {
+                let cancellation_token = cancellation_token
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Ok(()) = cancellation_token.recv_timeout(timeout) {
                     tracing::debug!("Forwarding cancellation");
                     _ = tx2.send(Err(CallbackError::Cancelled));
                 }
@@ -322,7 +332,10 @@ impl<T: Send + 'static> TimedCallback<T> {
         }
         let response_rx = self.rx.clone();
         std::thread::spawn(move || {
-            if let Ok(response) = response_rx.lock().unwrap().recv_timeout(timeout) {
+            let response_rx = response_rx
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Ok(response) = response_rx.recv_timeout(timeout) {
                 _ = tx.send(Ok(response));
             }
         });
@@ -342,9 +355,14 @@ impl<T: Send + 'static> TimedCallback<T> {
     }
 
     fn send(&self, response: Result<T, BitwardenError>) {
-        match self.tx.lock().unwrap().take() {
+        match self
+            .tx
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+        {
             Some(tx) => {
-                if let Err(_) = tx.send(response) {
+                if tx.send(response).is_err() {
                     tracing::error!("Windows provider channel closed before receiving IPC response from Electron")
                 }
             }

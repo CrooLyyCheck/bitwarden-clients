@@ -14,6 +14,7 @@ Ten build jest nieoficjalny i pochodzi z forka `CrooLyyCheck/clients`. Paczka Ap
 2. Uruchom `Install-Bitwarden-PasskeyPlugin.cmd`.
 3. Zaakceptuj okno UAC administratora.
 4. Poczekaj na komunikat `Gotowe. Uruchom Bitwarden z menu Start.`
+5. Uruchom zainstalowanego Bitwardena przynajmniej raz. Rejestracja providera passkey w Windows odbywa się przy starcie aplikacji, nie podczas samej instalacji AppX.
 
 Skrypt robi dwie rzeczy: dodaje dołączony publiczny certyfikat `.cer` do `LocalMachine\TrustedPeople`, a następnie instaluje plik `.appx`.
 
@@ -23,10 +24,40 @@ Uruchom PowerShell jako administrator w wyodrębnionym folderze i wykonaj:
 
 ```powershell
 Import-Certificate -FilePath .\Bitwarden-Passkey-Test-Certificate.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-Add-AppxPackage -Path .\Bitwarden-Passkey-Plugin-*-x64.appx
+Add-AppxPackage -Path .\Bitwarden-Passkey-Plugin-*-x64.appx -ForceApplicationShutdown -ForceUpdateFromAnyVersion
 ```
 
 Jeśli Windows nadal blokuje sideloading, włącz **Settings → System → For developers → Developer Mode**, a potem powtórz instalację.
+
+## Gdy Bitwarden nie pojawia się w ustawieniach passkey
+
+Third-party passkey provider w Windows jest funkcją Preview. Na dzień 26 maja 2026 wymaga Windows 11 build `26100.6725` lub nowszego albo `26200.6725` lub nowszego.
+
+Sprawdź wersję systemu:
+
+```powershell
+$v = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+"$($v.CurrentBuild).$($v.UBR)"
+```
+
+Sprawdź, czy paczka jest zainstalowana:
+
+```powershell
+Get-AppxPackage CrooLyyCheck.BitwardenPasskey
+```
+
+Po instalacji uruchom Bitwarden z menu Start i otwórz:
+
+```powershell
+start ms-settings:passkeys-advancedoptions
+```
+
+Na liście providerów powinien pojawić się **Bitwarden Desktop**. Jeśli go nie ma, zamknij Bitwarden, uruchom go ponownie i sprawdź log:
+
+```powershell
+$family = (Get-AppxPackage CrooLyyCheck.BitwardenPasskey).PackageFamilyName
+Get-Content "$env:LOCALAPPDATA\Packages\$family\LocalCache\Roaming\Bitwarden\app.log" -Tail 80
+```
 
 ## Komunikat 0x800B0109
 

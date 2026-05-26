@@ -182,7 +182,7 @@ fn create_get_assertion_response(
     // Encode to CBOR with error handling
     let mut cbor_data = Vec::new();
     if let Err(e) = ciborium::ser::into_writer(&cbor_value, &mut cbor_data) {
-        return Err(format!("Failed to encode CBOR assertion response: {e}"))?;
+        return Err(format!("Failed to encode CBOR assertion response: {e}").into());
     }
 
     Ok(cbor_data)

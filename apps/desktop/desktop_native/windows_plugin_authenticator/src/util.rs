@@ -42,5 +42,5 @@ impl HwndExt for HWND {
 }
 
 pub fn create_context_string(transaction_id: GUID) -> String {
-    STANDARD.encode(transaction_id.to_u128().to_le_bytes().to_vec())
+    STANDARD.encode(transaction_id.to_u128().to_le_bytes())
 }

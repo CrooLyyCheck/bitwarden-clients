@@ -18,6 +18,8 @@ use std::{
 };
 
 use base64::engine::{general_purpose::STANDARD, Engine as _};
+// Re-export main functionality
+pub use types::UserVerificationRequirement;
 use win_webauthn::{
     plugin::{
         PluginAddAuthenticatorOptions, PluginAuthenticator, PluginCancelOperationRequest,
@@ -28,9 +30,6 @@ use win_webauthn::{
 use windows::core::GUID;
 
 use crate::ipc2::{ConnectionStatus, TimedCallback, WindowsProviderClient};
-
-// Re-export main functionality
-pub use types::UserVerificationRequirement;
 
 const AUTHENTICATOR_NAME: &str = "Bitwarden Desktop";
 const RPID: &str = "bitwarden.com";
@@ -68,7 +67,7 @@ pub fn register() -> std::result::Result<(), String> {
         dark_theme_logo_svg: Some(LOGO_SVG.to_string()),
         authenticator_info: AuthenticatorInfo {
             versions: HashSet::from([CtapVersion::Fido2_0, CtapVersion::Fido2_1]),
-            aaguid: aaguid,
+            aaguid,
             options: Some(HashSet::from([
                 "rk".to_string(),
                 "up".to_string(),
@@ -186,7 +185,7 @@ impl PluginAuthenticator for BitwardenPluginAuthenticator {
         if let Some(cancellation_token) = cancellation_token {
             _ = cancellation_token.send(());
             let client = self.get_client();
-            let context = STANDARD.encode(transaction_id.to_u128().to_le_bytes().to_vec());
+            let context = STANDARD.encode(transaction_id.to_u128().to_le_bytes());
             tracing::debug!("Sending cancel operation to desktop client");
             client.send_native_status("cancel-operation".to_string(), context);
         }
@@ -206,7 +205,7 @@ impl PluginAuthenticator for BitwardenPluginAuthenticator {
                 }
             }
             Ok(Err(err)) => Err(format!("GetLockStatus() call failed: {err}").into()),
-            Err(_) => Err(format!("GetLockStatus() call timed out").into()),
+            Err(_) => Err("GetLockStatus() call timed out".to_string().into()),
         }
     }
 }
