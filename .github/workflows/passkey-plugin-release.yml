@@ -72,6 +72,20 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Add SignTool to PATH
+        run: |
+          $windowsKits = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+          $signtool = Get-ChildItem $windowsKits -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if ($null -eq $signtool) {
+            throw "Could not find signtool.exe in $windowsKits"
+          }
+
+          Split-Path $signtool.FullName | Out-File -Append -FilePath $env:GITHUB_PATH
+
       - name: Create test signing certificate
         run: |
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\signing", "apps\desktop\dist\passkey-release" | Out-Null
@@ -120,11 +134,11 @@ jobs:
             --win appx `
             --x64 `
             --publish never `
-            -c.appId=com.croolyycheck.bitwarden.passkey `
-            -c.appx.identityName="$env:APPX_IDENTITY" `
-            -c.appx.publisher="$env:APPX_PUBLISHER" `
-            -c.appx.publisherDisplayName="$env:APPX_PUBLISHER_DISPLAY_NAME" `
-            -c.appx.artifactName='Bitwarden-Passkey-Plugin-${version}-${arch}.${ext}'
+            --config.appId=com.croolyycheck.bitwarden.passkey `
+            --config.appx.identityName="$env:APPX_IDENTITY" `
+            --config.appx.publisher="$env:APPX_PUBLISHER" `
+            --config.appx.publisherDisplayName="$env:APPX_PUBLISHER_DISPLAY_NAME" `
+            --config.appx.artifactName='Bitwarden-Passkey-Plugin-${version}-${arch}.${ext}'
 
       - name: Assemble release bundle
         run: |
