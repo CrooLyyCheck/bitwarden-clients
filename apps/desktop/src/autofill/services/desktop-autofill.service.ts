@@ -53,8 +53,11 @@ import type { NativeWindowObject } from "./desktop-fido2-user-interface.service"
 export class DesktopAutofillService implements OnDestroy {
   private destroy$ = new Subject<void>();
   private registrationRequest: autofill.PasskeyRegistrationRequest;
-  private featureFlag?: typeof FeatureFlag.MacOsNativeCredentialSync;
+  private featureFlag?:
+    | typeof FeatureFlag.MacOsNativeCredentialSync
+    | typeof FeatureFlag.WindowsNativeCredentialSync;
   private isEnabled: boolean = false;
+  private inFlightRequests: Record<string, AbortController> = {};
 
   constructor(
     private logService: LogService,
@@ -68,6 +71,8 @@ export class DesktopAutofillService implements OnDestroy {
     const deviceType = platformUtilsService.getDevice();
     if (deviceType === DeviceType.MacOsDesktop) {
       this.featureFlag = FeatureFlag.MacOsNativeCredentialSync;
+    } else if (deviceType === DeviceType.WindowsDesktop) {
+      this.featureFlag = FeatureFlag.WindowsNativeCredentialSync;
     }
   }
 
@@ -129,8 +134,9 @@ export class DesktopAutofillService implements OnDestroy {
     }
 
     const cipherViewMap = await firstValueFrom(this.cipherService.cipherViews$(userId));
-    this.logService.info("Performing AdHoc sync", Object.values(cipherViewMap ?? []));
-    await this.sync(Object.values(cipherViewMap ?? []));
+    const cipherViews = Object.values(cipherViewMap ?? []);
+    this.logService.info("Performing AdHoc sync", { cipherCount: cipherViews.length });
+    await this.sync(cipherViews);
   }
 
   /** Give metadata about all available credentials in the users vault */
@@ -145,8 +151,8 @@ export class DesktopAutofillService implements OnDestroy {
       return;
     }
 
-    let fido2Credentials: NativeAutofillFido2Credential[];
-    let passwordCredentials: NativeAutofillPasswordCredential[];
+    let fido2Credentials: NativeAutofillFido2Credential[] = [];
+    let passwordCredentials: NativeAutofillPasswordCredential[] = [];
 
     if (status.value.support.password) {
       passwordCredentials = cipherViews
@@ -176,8 +182,8 @@ export class DesktopAutofillService implements OnDestroy {
     }
 
     this.logService.info("Syncing autofill credentials", {
-      fido2Credentials,
-      passwordCredentials,
+      fido2CredentialCount: fido2Credentials.length,
+      passwordCredentialCount: passwordCredentials.length,
     });
 
     const syncResult = await ipc.autofill.runCommand<NativeAutofillSyncCommand>({
@@ -221,10 +227,12 @@ export class DesktopAutofillService implements OnDestroy {
 
       this.registrationRequest = request;
 
-      this.logService.debug("listenPasskeyRegistration", clientId, sequenceNumber, request);
-      this.logService.debug("listenPasskeyRegistration2", this.convertRegistrationRequest(request));
+      this.logService.debug("listenPasskeyRegistration", clientId, sequenceNumber);
 
       const controller = new AbortController();
+      if (request.context) {
+        this.inFlightRequests[request.context] = controller;
+      }
 
       try {
         const response = await this.fido2AuthenticatorService.makeCredential(
@@ -237,6 +245,10 @@ export class DesktopAutofillService implements OnDestroy {
       } catch (error) {
         this.logService.error("listenPasskeyRegistration error", error);
         callback(error, null);
+      } finally {
+        if (request.context) {
+          delete this.inFlightRequests[request.context];
+        }
       }
     });
 
@@ -254,10 +266,12 @@ export class DesktopAutofillService implements OnDestroy {
           "listenPasskeyAssertion without user interface",
           clientId,
           sequenceNumber,
-          request,
         );
 
         const controller = new AbortController();
+        if (request.context) {
+          this.inFlightRequests[request.context] = controller;
+        }
 
         try {
           const response = await this.fido2AuthenticatorService.getAssertion(
@@ -271,6 +285,10 @@ export class DesktopAutofillService implements OnDestroy {
           this.logService.error("listenPasskeyAssertion error", error);
           callback(error, null);
           return;
+        } finally {
+          if (request.context) {
+            delete this.inFlightRequests[request.context];
+          }
         }
       },
     );
@@ -284,9 +302,12 @@ export class DesktopAutofillService implements OnDestroy {
         return;
       }
 
-      this.logService.debug("listenPasskeyAssertion", clientId, sequenceNumber, request);
+      this.logService.debug("listenPasskeyAssertion", clientId, sequenceNumber);
 
       const controller = new AbortController();
+      if (request.context) {
+        this.inFlightRequests[request.context] = controller;
+      }
       try {
         const response = await this.fido2AuthenticatorService.getAssertion(
           this.convertAssertionRequest(request),
@@ -298,6 +319,10 @@ export class DesktopAutofillService implements OnDestroy {
       } catch (error) {
         this.logService.error("listenPasskeyAssertion error", error);
         callback(error, null);
+      } finally {
+        if (request.context) {
+          delete this.inFlightRequests[request.context];
+        }
       }
     });
 
@@ -315,6 +340,30 @@ export class DesktopAutofillService implements OnDestroy {
         // perform ad-hoc sync
         await this.adHocSync();
       }
+
+      if (status.key === "cancel-operation" && status.value) {
+        const controller = this.inFlightRequests[status.value];
+        if (controller) {
+          this.logService.debug("Cancelling native passkey request");
+          controller.abort("Operation cancelled");
+        }
+      }
+    });
+
+    ipc.autofill.listenLockStatusQuery(async (clientId, sequenceNumber, request, callback) => {
+      if (!this.isEnabled) {
+        this.logService.debug(
+          `listenLockStatusQuery: Native credential sync feature flag (${this.featureFlag}) is disabled`,
+        );
+        callback(new Error("Native credential sync feature flag is disabled"), null);
+        return;
+      }
+
+      this.logService.debug("listenLockStatusQuery", clientId, sequenceNumber);
+      const isUnlocked =
+        (await firstValueFrom(this.authService.activeAccountStatus$)) ===
+        AuthenticationStatus.Unlocked;
+      callback(null, { isUnlocked });
     });
 
     ipc.autofill.listenerReady();

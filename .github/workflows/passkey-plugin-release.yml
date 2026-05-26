@@ -1,0 +1,220 @@
+name: Passkey Plugin Windows Release
+
+on:
+  push:
+    branches:
+      - codex/windows-native-passkeys-main
+    paths:
+      - ".github/workflows/passkey-plugin-release.yml"
+      - "apps/desktop/**"
+      - "docs/windows-passkey-plugin-install-pl.md"
+      - "libs/**"
+      - "package-lock.json"
+      - "package.json"
+      - "scripts/windows/Install-Bitwarden-PasskeyPlugin.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to create or update"
+        required: true
+        type: string
+        default: "passkey-plugin-latest"
+      release_title:
+        description: "Release title"
+        required: true
+        type: string
+        default: "Bitwarden Windows passkey plugin test build"
+
+defaults:
+  run:
+    shell: pwsh
+
+permissions:
+  contents: write
+
+jobs:
+  windows-appx:
+    name: Build signed Windows AppX
+    runs-on: windows-2022
+    env:
+      APPX_IDENTITY: CrooLyyCheck.BitwardenPasskey
+      APPX_PUBLISHER: CN=CrooLyyCheck Bitwarden Passkey Test
+      APPX_PUBLISHER_DISPLAY_NAME: CrooLyyCheck
+      CERT_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-bitwarden-passkey
+      NODE_OPTIONS: --max_old_space_size=4096
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Read Node version
+        id: node-version
+        run: |
+          $nodeVersion = (Get-Content .nvmrc).Trim().TrimStart("v")
+          "version=$nodeVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          cache: "npm"
+          cache-dependency-path: "**/package-lock.json"
+          node-version: ${{ steps.node-version.outputs.version }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          workspaces: |
+            apps/desktop/desktop_native -> target
+          cache-targets: "true"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Add SignTool to PATH
+        run: |
+          $windowsKits = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+          $signtool = Get-ChildItem $windowsKits -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if ($null -eq $signtool) {
+            throw "Could not find signtool.exe in $windowsKits"
+          }
+
+          Split-Path $signtool.FullName | Out-File -Append -FilePath $env:GITHUB_PATH
+
+      - name: Create test signing certificate
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\signing", "apps\desktop\dist\passkey-release" | Out-Null
+
+          $cert = New-SelfSignedCertificate `
+            -Type Custom `
+            -KeyAlgorithm RSA `
+            -KeyLength 2048 `
+            -KeyUsage DigitalSignature `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -KeyExportPolicy Exportable `
+            -HashAlgorithm SHA256 `
+            -Subject "$env:APPX_PUBLISHER" `
+            -FriendlyName "CrooLyyCheck Bitwarden Passkey Test Signing" `
+            -NotAfter (Get-Date).AddYears(3) `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+
+          $securePassword = ConvertTo-SecureString "$env:CERT_PASSWORD" -AsPlainText -Force
+          Export-PfxCertificate `
+            -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
+            -FilePath "$env:RUNNER_TEMP\signing\passkey-signing.pfx" `
+            -Password $securePassword | Out-Null
+
+          Export-Certificate `
+            -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
+            -FilePath "apps\desktop\dist\passkey-release\Bitwarden-Passkey-Test-Certificate.cer" | Out-Null
+
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+
+      - name: Build native module
+        working-directory: apps/desktop/desktop_native
+        run: node build.js --target=x86_64-pc-windows-msvc --release
+
+      - name: Build desktop app
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Build signed AppX
+        working-directory: apps/desktop
+        env:
+          ELECTRON_BUILDER_SIGN_CERT: ${{ runner.temp }}\signing\passkey-signing.pfx
+          ELECTRON_BUILDER_SIGN_CERT_PW: ${{ env.CERT_PASSWORD }}
+        run: |
+          npx electron-builder `
+            --config electron-builder.json `
+            --win appx `
+            --x64 `
+            --publish never `
+            --config.buildNumber=${{ github.run_number }} `
+            --config.appId=com.croolyycheck.bitwarden.passkey `
+            --config.appx.identityName="$env:APPX_IDENTITY" `
+            --config.appx.publisher="$env:APPX_PUBLISHER" `
+            --config.appx.publisherDisplayName="$env:APPX_PUBLISHER_DISPLAY_NAME" `
+            --config.appx.setBuildNumber=true `
+            --config.appx.artifactName='Bitwarden-Passkey-Plugin-${version}-${arch}.${ext}'
+
+      - name: Assemble release bundle
+        run: |
+          $releaseDir = "apps\desktop\dist\passkey-release"
+          $appx = Get-ChildItem "apps\desktop\dist" -Filter "Bitwarden-Passkey-Plugin-*-x64.appx" -Recurse | Select-Object -First 1
+          if ($null -eq $appx) {
+            throw "Could not find signed AppX artifact."
+          }
+
+          Copy-Item $appx.FullName -Destination $releaseDir
+          Copy-Item "scripts\windows\Install-Bitwarden-PasskeyPlugin.ps1" -Destination "$releaseDir\Install-Bitwarden-PasskeyPlugin.ps1"
+          Copy-Item "scripts\windows\Install-Bitwarden-PasskeyPlugin.cmd" -Destination "$releaseDir\Install-Bitwarden-PasskeyPlugin.cmd"
+          Copy-Item "docs\windows-passkey-plugin-install-pl.md" -Destination "$releaseDir\README-INSTALL-PL.md"
+
+          Get-ChildItem $releaseDir -File |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $([System.IO.Path]::GetFileName($_.Path))" } |
+            Set-Content "$releaseDir\SHA256SUMS.txt"
+
+          $zipName = "Bitwarden-Passkey-Plugin-${{ github.run_number }}-x64.zip"
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "apps\desktop\dist\$zipName" -Force
+          "zip_path=apps/desktop/dist/$zipName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: bitwarden-passkey-plugin-x64
+          path: apps/desktop/dist/Bitwarden-Passkey-Plugin-*-x64.zip
+          if-no-files-found: error
+
+      - name: Create release notes
+        run: |
+          @"
+          Unofficial Windows AppX build from the CrooLyyCheck fork with Windows passkey plugin support enabled.
+
+          Download the zip asset, extract it, then run `Install-Bitwarden-PasskeyPlugin.cmd`.
+          The bundle includes:
+
+          - signed AppX package
+          - public test certificate (`.cer`)
+          - installer script that trusts the certificate and installs the AppX
+          - Polish installation notes
+
+          This release is not signed by Bitwarden Inc. or Microsoft Store. Install it only if you trust this fork and this exact GitHub release.
+          "@ | Set-Content "$env:RUNNER_TEMP\release-notes.md"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || 'passkey-plugin-latest' }}
+          RELEASE_TITLE: ${{ inputs.release_title || 'Bitwarden Windows passkey plugin test build' }}
+        run: |
+          $asset = Get-ChildItem "apps\desktop\dist" -Filter "Bitwarden-Passkey-Plugin-*-x64.zip" | Select-Object -First 1
+          if ($null -eq $asset) {
+            throw "Could not find release zip."
+          }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$env:RELEASE_TAG" "$env:GITHUB_SHA"
+          git push origin "refs/tags/$env:RELEASE_TAG" --force
+
+          if (gh release view "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY" *> $null) {
+            gh release upload "$env:RELEASE_TAG" $asset.FullName --repo "$env:GITHUB_REPOSITORY" --clobber
+            gh release edit "$env:RELEASE_TAG" `
+              --repo "$env:GITHUB_REPOSITORY" `
+              --title "$env:RELEASE_TITLE" `
+              --notes-file "$env:RUNNER_TEMP\release-notes.md" `
+              --prerelease
+          } else {
+            gh release create "$env:RELEASE_TAG" $asset.FullName `
+              --repo "$env:GITHUB_REPOSITORY" `
+              --target "$env:GITHUB_SHA" `
+              --title "$env:RELEASE_TITLE" `
+              --notes-file "$env:RUNNER_TEMP\release-notes.md" `
+              --prerelease
+          }

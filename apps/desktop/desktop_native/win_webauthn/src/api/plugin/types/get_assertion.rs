@@ -62,7 +62,7 @@ impl<'a> PluginGetAssertionRequest<'a> {
     /// - `pbEncodedRequest` must point to a valid byte string of a CTAP `GetAssertion` request.
     ///
     /// A request can be considered valid if the signature is verified as coming from the OS.
-    pub(super) unsafe fn try_from_ptr(
+    pub(in crate::api) unsafe fn try_from_ptr(
         value: &'a WEBAUTHN_PLUGIN_OPERATION_REQUEST,
     ) -> Result<PluginGetAssertionRequest<'a>, WinWebAuthnError> {
         if !matches!(value.requestType, WEBAUTHN_PLUGIN_REQUEST_TYPE::CTAP2_CBOR) {
