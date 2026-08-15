@@ -12,7 +12,7 @@ wydania wykonaj:
 
 ```powershell
 $repo = "CrooLyyCheck/bitwarden-clients"
-$tag = "passkey-plugin-v2026.8.0-fork.1"
+$tag = Read-Host "Wklej tag widoczny na stronie wydania (passkey-plugin-v...-fork...)"
 gh release download $tag -R $repo -p "Bitwarden-Passkey-Plugin-*-x64.zip"
 $zip = Get-ChildItem "Bitwarden-Passkey-Plugin-*-x64.zip" | Select-Object -First 1
 
