@@ -68,7 +68,7 @@ if ($env:OS -ne "Windows_NT") {
 $requiredCommands = @("git", "node", "npm", "npx", "cargo", "rustc")
 foreach ($requiredCommand in $requiredCommands) {
     if (-not (Get-Command $requiredCommand -ErrorAction SilentlyContinue)) {
-        throw "Brak polecenia '$requiredCommand'. Zobacz docs/windows-passkey-plugin-install-pl.md."
+        throw "Brak polecenia '$requiredCommand'. Zobacz docs/windows-passkey-plugin-install.md."
     }
 }
 
@@ -216,8 +216,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $scriptDirectory "Install-Bitwarden-PasskeyPlugin.ps1") -Destination $bundleDirectory
     Copy-Item -LiteralPath (Join-Path $scriptDirectory "Install-Bitwarden-PasskeyPlugin.cmd") -Destination $bundleDirectory
     Copy-Item `
-        -LiteralPath (Join-Path $repositoryRoot "docs\windows-passkey-plugin-install-pl.md") `
-        -Destination (Join-Path $bundleDirectory "README-INSTALL-PL.md")
+        -LiteralPath (Join-Path $repositoryRoot "docs\windows-passkey-plugin-install.md") `
+        -Destination (Join-Path $bundleDirectory "README-INSTALL.md")
 
     Push-Location $repositoryRoot
     try {

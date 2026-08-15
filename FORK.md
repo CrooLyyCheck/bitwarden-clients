@@ -32,7 +32,7 @@ No new encryption logic is added. The passkey implementation itself remains the 
 ## Build locally on Windows
 
 After installing the prerequisites described in
-[`docs/windows-passkey-plugin-install-pl.md`](docs/windows-passkey-plugin-install-pl.md), run from
+[`docs/windows-passkey-plugin-install.md`](docs/windows-passkey-plugin-install.md), run from
 the repository root:
 
 ```powershell

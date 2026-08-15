@@ -17,7 +17,7 @@ C++**, the Windows 10 or 11 SDK, and about 15 GB of free disk space.
 ```powershell
 git clone https://github.com/CrooLyyCheck/bitwarden-clients.git
 cd bitwarden-clients
-git switch --detach passkey-plugin-v2026.8.0-fork.3
+git switch --detach passkey-plugin-v2026.8.0-fork.4
 
 .\BUILD-PASSKEY-PLUGIN.cmd -CheckOnly
 .\BUILD-PASSKEY-PLUGIN.cmd
@@ -29,7 +29,7 @@ The script uses the dependency versions locked in `package-lock.json`, signs the
 a one-time test certificate, and removes the private key when the build finishes.
 
 More information is available in the
-[detailed Polish build and installation guide](docs/windows-passkey-plugin-install-pl.md). You can
+[detailed build and installation guide](docs/windows-passkey-plugin-install.md). You can
 also review the [complete diff against the original repository](https://github.com/bitwarden/clients/compare/51c7e4c650cec8d7f0cf53e297c484625ef5f210...CrooLyyCheck%3Abitwarden-clients%3Amain).
 
 ---
