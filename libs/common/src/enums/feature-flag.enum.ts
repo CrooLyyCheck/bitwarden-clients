@@ -162,7 +162,8 @@ export const DefaultFeatureFlagValue = {
   [FeatureFlag.MacOsNativeCredentialSync]: FALSE,
   [FeatureFlag.WindowsDesktopAutotype]: FALSE,
   [FeatureFlag.WindowsDesktopAutotypeGA]: FALSE,
-  [FeatureFlag.WindowsNativeCredentialSync]: FALSE,
+  // Fork delta: enable the upstream Windows passkey provider in the test build by default.
+  [FeatureFlag.WindowsNativeCredentialSync]: true,
   [FeatureFlag.SSHAgentV2]: FALSE,
   [FeatureFlag.SSHecdsa]: FALSE,
 

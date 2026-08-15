@@ -1,3 +1,8 @@
+> [!IMPORTANT]
+> This is an unofficial fork. Its release branch differs from upstream only in the changes
+> documented in [FORK.md](FORK.md). Downloadable builds are produced by public GitHub Actions
+> runs and published as immutable releases with verifiable attestations.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/bitwarden/brand/main/screenshots/apps-combo-logo.png" alt="Bitwarden" />
 </p>

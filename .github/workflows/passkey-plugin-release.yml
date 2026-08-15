@@ -1,0 +1,288 @@
+name: Passkey Plugin Windows Release
+
+on:
+  push:
+    tags:
+      - "passkey-plugin-v*-fork.*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  windows-appx:
+    name: Build, attest, and publish Windows AppX
+    runs-on: windows-2022
+    env:
+      APPX_IDENTITY: CrooLyyCheck.BitwardenPasskey
+      APPX_PUBLISHER: CN=CrooLyyCheck Bitwarden Passkey Test
+      APPX_PUBLISHER_DISPLAY_NAME: CrooLyyCheck
+      CERT_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-bitwarden-passkey
+      NODE_OPTIONS: --max_old_space_size=4096
+    steps:
+      - name: Check out the immutable release tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag and record source identity
+        id: source
+        run: |
+          $packageVersion = (Get-Content -Raw "apps/desktop/package.json" | ConvertFrom-Json).version
+          $expectedTag = '^passkey-plugin-v' + [regex]::Escape($packageVersion) + '-fork\.[1-9][0-9]*$'
+          if ($env:GITHUB_REF_NAME -notmatch $expectedTag) {
+            throw "Tag '$env:GITHUB_REF_NAME' must match passkey-plugin-v$packageVersion-fork.<revision>."
+          }
+
+          $upstreamCommit = (Get-Content ".fork/upstream-commit").Trim()
+          git cat-file -e "$upstreamCommit^{commit}"
+          git merge-base --is-ancestor $upstreamCommit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw "Recorded upstream commit is not an ancestor of the release commit."
+          }
+
+          $revision = $env:GITHUB_REF_NAME -replace ('^passkey-plugin-v' + [regex]::Escape($packageVersion) + '-'), ''
+          "package_version=$packageVersion" >> $env:GITHUB_OUTPUT
+          "release_version=$packageVersion-$revision" >> $env:GITHUB_OUTPUT
+          "upstream_commit=$upstreamCommit" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install Node dependencies from the lockfile
+        run: npm ci
+
+      - name: Locate SignTool
+        run: |
+          $windowsKits = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+          $signTool = Get-ChildItem -LiteralPath $windowsKits -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if ($null -eq $signTool) {
+            throw "Could not find signtool.exe in $windowsKits."
+          }
+
+          Split-Path $signTool.FullName | Out-File -Append -FilePath $env:GITHUB_PATH
+
+      - name: Create an ephemeral test signing certificate
+        run: |
+          $signingDirectory = Join-Path $env:RUNNER_TEMP "signing"
+          New-Item -ItemType Directory -Force -Path $signingDirectory | Out-Null
+
+          $certificate = New-SelfSignedCertificate `
+            -Type Custom `
+            -KeyAlgorithm RSA `
+            -KeyLength 3072 `
+            -KeyUsage DigitalSignature `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -KeyExportPolicy Exportable `
+            -HashAlgorithm SHA256 `
+            -Subject "$env:APPX_PUBLISHER" `
+            -FriendlyName "CrooLyyCheck Bitwarden Passkey Test Signing" `
+            -NotAfter (Get-Date).AddMonths(18) `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+
+          $securePassword = ConvertTo-SecureString "$env:CERT_PASSWORD" -AsPlainText -Force
+          Export-PfxCertificate `
+            -Cert "Cert:\CurrentUser\My\$($certificate.Thumbprint)" `
+            -FilePath "$signingDirectory\passkey-signing.pfx" `
+            -Password $securePassword | Out-Null
+
+          Export-Certificate `
+            -Cert "Cert:\CurrentUser\My\$($certificate.Thumbprint)" `
+            -FilePath "$signingDirectory\Bitwarden-Passkey-Test-Certificate.cer" | Out-Null
+
+      - name: Build the upstream native module and plugin
+        working-directory: apps/desktop/desktop_native
+        run: node build.js --target=x86_64-pc-windows-msvc --release
+
+      - name: Build the upstream desktop application
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Build and sign the test AppX
+        working-directory: apps/desktop
+        env:
+          ELECTRON_BUILDER_SIGN_CERT: ${{ runner.temp }}\signing\passkey-signing.pfx
+          ELECTRON_BUILDER_SIGN_CERT_PW: ${{ env.CERT_PASSWORD }}
+        run: |
+          npx electron-builder `
+            --config electron-builder.json `
+            --win appx `
+            --x64 `
+            --publish never `
+            --config.buildNumber=${{ github.run_number }} `
+            --config.appId=com.croolyycheck.bitwarden.passkey `
+            --config.appx.customManifestPath=custom-appx-manifest.xml `
+            --config.appx.identityName="$env:APPX_IDENTITY" `
+            --config.appx.publisher="$env:APPX_PUBLISHER" `
+            --config.appx.publisherDisplayName="$env:APPX_PUBLISHER_DISPLAY_NAME" `
+            --config.appx.setBuildNumber=true `
+            --config.appx.artifactName='Bitwarden-Passkey-Plugin-${version}-${arch}.${ext}'
+
+      - name: Generate SBOM and assemble the release bundle
+        id: bundle
+        env:
+          PACKAGE_VERSION: ${{ steps.source.outputs.package_version }}
+          RELEASE_VERSION: ${{ steps.source.outputs.release_version }}
+          UPSTREAM_COMMIT: ${{ steps.source.outputs.upstream_commit }}
+        run: |
+          $releaseDirectory = "apps\desktop\dist\passkey-release"
+          New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
+
+          $builtAppx = Get-ChildItem "apps\desktop\dist" -Filter "Bitwarden-Passkey-Plugin-*-x64.appx" -Recurse |
+            Select-Object -First 1
+          if ($null -eq $builtAppx) {
+            throw "Could not find the signed AppX artifact."
+          }
+
+          $appxName = "Bitwarden-Passkey-Plugin-$env:RELEASE_VERSION-x64.appx"
+          Copy-Item -LiteralPath $builtAppx.FullName -Destination "$releaseDirectory\$appxName"
+          Copy-Item -LiteralPath "$env:RUNNER_TEMP\signing\Bitwarden-Passkey-Test-Certificate.cer" -Destination $releaseDirectory
+          Copy-Item -LiteralPath "scripts\windows\Install-Bitwarden-PasskeyPlugin.ps1" -Destination $releaseDirectory
+          Copy-Item -LiteralPath "scripts\windows\Install-Bitwarden-PasskeyPlugin.cmd" -Destination $releaseDirectory
+          Copy-Item -LiteralPath "docs\windows-passkey-plugin-install-pl.md" -Destination "$releaseDirectory\README-INSTALL-PL.md"
+
+          npm sbom --package-lock-only --workspace @bitwarden/desktop --omit dev --sbom-format cyclonedx |
+            Set-Content "$releaseDirectory\SBOM.cdx.json"
+
+          $sourceInfo = [ordered]@{
+            forkRepository = $env:GITHUB_REPOSITORY
+            forkCommit = $env:GITHUB_SHA
+            releaseTag = $env:GITHUB_REF_NAME
+            upstreamRepository = "bitwarden/clients"
+            upstreamCommit = $env:UPSTREAM_COMMIT
+            compareUrl = "https://github.com/bitwarden/clients/compare/$env:UPSTREAM_COMMIT...CrooLyyCheck:bitwarden-clients:$env:GITHUB_REF_NAME"
+            workflowRunUrl = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          }
+          $sourceInfo | ConvertTo-Json | Set-Content "$releaseDirectory\SOURCE.json"
+
+          Get-ChildItem -LiteralPath $releaseDirectory -File |
+            Get-FileHash -Algorithm SHA256 |
+            Sort-Object Path |
+            ForEach-Object { "$($_.Hash)  $([System.IO.Path]::GetFileName($_.Path))" } |
+            Set-Content "$releaseDirectory\SHA256SUMS.txt"
+
+          $zipName = "Bitwarden-Passkey-Plugin-$env:RELEASE_VERSION-x64.zip"
+          $zipPath = "apps\desktop\dist\$zipName"
+          Compress-Archive -Path "$releaseDirectory\*" -DestinationPath $zipPath -Force
+
+          $zipHash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256
+          "$($zipHash.Hash)  $zipName" | Set-Content "apps\desktop\dist\SHA256SUMS-release.txt"
+
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          "sbom_path=$releaseDirectory\SBOM.cdx.json" >> $env:GITHUB_OUTPUT
+
+      - name: Attest build provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.bundle.outputs.zip_path }}
+
+      - name: Attest the SBOM for the release bundle
+        id: sbom-attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.bundle.outputs.zip_path }}
+          sbom-path: ${{ steps.bundle.outputs.sbom_path }}
+
+      - name: Upload the workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.bundle.outputs.zip_name }}
+          path: |
+            ${{ steps.bundle.outputs.zip_path }}
+            apps/desktop/dist/SHA256SUMS-release.txt
+            ${{ steps.bundle.outputs.sbom_path }}
+          if-no-files-found: error
+
+      - name: Create release notes
+        env:
+          UPSTREAM_COMMIT: ${{ steps.source.outputs.upstream_commit }}
+          ZIP_NAME: ${{ steps.bundle.outputs.zip_name }}
+        run: |
+          $template = @'
+          # Unofficial Bitwarden Windows passkey test build
+
+          This AppX was built from public source by GitHub-hosted Actions. It is not reviewed,
+          signed, or endorsed by Bitwarden, Inc. The AppX uses an ephemeral self-signed test
+          certificate included in the ZIP.
+
+          - Fork commit: `__FORK_SHA__`
+          - Upstream commit: `__UPSTREAM_SHA__`
+          - [Exact source diff](__COMPARE_URL__)
+          - [Build workflow run](__RUN_URL__)
+          - [Build provenance attestation](__ATTESTATION_URL__)
+
+          Verify the downloaded ZIP before extracting it:
+
+          ```powershell
+          $repo = "CrooLyyCheck/bitwarden-clients"
+          $tag = "__TAG__"
+          gh release download $tag -R $repo -p "__ZIP_NAME__"
+          gh release verify-asset $tag "__ZIP_NAME__" -R $repo
+          gh attestation verify "__ZIP_NAME__" -R $repo `
+            --signer-workflow "$repo/.github/workflows/passkey-plugin-release.yml" `
+            --source-ref "refs/tags/$tag" `
+            --source-digest "__FORK_SHA__" `
+            --deny-self-hosted-runners
+          ```
+
+          After both checks pass, extract the ZIP and run
+          `Install-Bitwarden-PasskeyPlugin.cmd`. Polish installation and removal instructions are
+          included in the bundle.
+          '@
+
+          $compareUrl = "https://github.com/bitwarden/clients/compare/$env:UPSTREAM_COMMIT...CrooLyyCheck:bitwarden-clients:$env:GITHUB_REF_NAME"
+          $runUrl = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          $notes = $template.Replace("__FORK_SHA__", $env:GITHUB_SHA).
+            Replace("__UPSTREAM_SHA__", $env:UPSTREAM_COMMIT).
+            Replace("__COMPARE_URL__", $compareUrl).
+            Replace("__RUN_URL__", $runUrl).
+            Replace("__ATTESTATION_URL__", "${{ steps.provenance.outputs.attestation-url }}").
+            Replace("__TAG__", $env:GITHUB_REF_NAME).
+            Replace("__ZIP_NAME__", $env:ZIP_NAME)
+          $notes | Set-Content "$env:RUNNER_TEMP\release-notes.md"
+
+      - name: Create draft release and upload every asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP_PATH: ${{ steps.bundle.outputs.zip_path }}
+          SBOM_PATH: ${{ steps.bundle.outputs.sbom_path }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_ATTESTATION_BUNDLE: ${{ steps.sbom-attestation.outputs.bundle-path }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" `
+            --repo "$env:GITHUB_REPOSITORY" `
+            --verify-tag `
+            --draft `
+            --title "Bitwarden Windows passkey test build ${{ steps.source.outputs.release_version }}" `
+            --notes-file "$env:RUNNER_TEMP\release-notes.md"
+
+          Copy-Item -LiteralPath $env:PROVENANCE_BUNDLE -Destination "$env:RUNNER_TEMP\provenance.sigstore.json"
+          Copy-Item -LiteralPath $env:SBOM_ATTESTATION_BUNDLE -Destination "$env:RUNNER_TEMP\sbom-attestation.sigstore.json"
+
+          gh release upload "$env:GITHUB_REF_NAME" `
+            $env:ZIP_PATH `
+            "apps\desktop\dist\SHA256SUMS-release.txt" `
+            $env:SBOM_PATH `
+            "$env:RUNNER_TEMP\provenance.sigstore.json" `
+            "$env:RUNNER_TEMP\sbom-attestation.sigstore.json" `
+            --repo "$env:GITHUB_REPOSITORY"
+
+          gh release edit "$env:GITHUB_REF_NAME" `
+            --repo "$env:GITHUB_REPOSITORY" `
+            --draft=false `
+            --prerelease
