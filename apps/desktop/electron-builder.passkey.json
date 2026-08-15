@@ -1,0 +1,18 @@
+{
+  "extends": "./electron-builder.json",
+  "appId": "com.croolyycheck.bitwarden.passkey",
+  "toolsets": {
+    "winCodeSign": "1.1.0"
+  },
+  "win": {
+    "signAndEditExecutable": false
+  },
+  "appx": {
+    "artifactName": "Bitwarden-Passkey-Plugin-${version}-${arch}.${ext}",
+    "customManifestPath": "custom-appx-manifest.xml",
+    "identityName": "CrooLyyCheck.BitwardenPasskey",
+    "publisher": "CN=CrooLyyCheck Bitwarden Passkey Test",
+    "publisherDisplayName": "CrooLyyCheck",
+    "setBuildNumber": true
+  }
+}

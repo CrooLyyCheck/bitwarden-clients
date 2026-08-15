@@ -1,41 +1,95 @@
-# Bitwarden Windows passkey plugin — testowy build
+# Bitwarden Windows passkey plugin — build ze źródła
 
-To nieoficjalny build z publicznego forka `CrooLyyCheck/bitwarden-clients`. Kod pluginu passkey
-pochodzi z aktualnego upstreamu Bitwarden; fork domyślnie włącza eksperymentalną flagę i dodaje
-weryfikowalny proces pakowania. Paczka AppX jest podpisana jednorazowym certyfikatem testowym,
-który Windows nie uznaje automatycznie tak jak podpisu Microsoft Store.
+To nieoficjalny fork `CrooLyyCheck/bitwarden-clients`. Kod pluginu passkey pochodzi z upstreamu
+Bitwarden; jedyna zmiana funkcjonalna forka domyślnie włącza eksperymentalną funkcję Windows.
 
-## Pobranie i weryfikacja przed rozpakowaniem
+Najbezpieczniejszy sposób uzyskania paczki to zbudowanie jej samodzielnie. Nie trzeba ufać
+plikowi wykonywalnemu przesłanemu przez właściciela forka ani korzystać z płatnej usługi CI.
 
-Zainstaluj aktualny [GitHub CLI](https://cli.github.com/), a następnie dla tagu widocznego na stronie
-wydania wykonaj:
+## Wymagania
+
+- Windows 11 x64;
+- Git;
+- Node.js `24.x` (wersja jest również zapisana w `.nvmrc`);
+- Rust stable z toolchainem `x86_64-pc-windows-msvc`;
+- Visual Studio 2022 Build Tools z opcją **Desktop development with C++**;
+- Windows 10 lub 11 SDK, zawierający `signtool.exe`;
+- około 15 GB wolnego miejsca.
+
+## 1. Pobranie źródła
 
 ```powershell
-$repo = "CrooLyyCheck/bitwarden-clients"
-$tag = Read-Host "Wklej tag widoczny na stronie wydania (passkey-plugin-v...-fork...)"
-gh release download $tag -R $repo -p "Bitwarden-Passkey-Plugin-*-x64.zip"
-$zip = Get-ChildItem "Bitwarden-Passkey-Plugin-*-x64.zip" | Select-Object -First 1
-
-# Warstwa 1: plik jest dokładnie assetem niezmiennego release GitHub.
-gh release verify-asset $tag $zip.FullName -R $repo
-
-# Warstwa 2: plik powstał w publicznym workflow z kodu wskazanego przez tag.
-gh attestation verify $zip.FullName -R $repo `
-  --signer-workflow "$repo/.github/workflows/passkey-plugin-release.yml" `
-  --source-ref "refs/tags/$tag" `
-  --deny-self-hosted-runners
+git clone https://github.com/CrooLyyCheck/bitwarden-clients.git
+cd bitwarden-clients
+git switch codex/windows-passkey-transparent-release
 ```
 
-Obie komendy muszą zakończyć się powodzeniem. Attestation wiąże hash pobranego pliku z publicznym
-workflow, repozytorium, tagiem i SHA źródła. Nie dowodzi, że kod jest wolny od błędów — dlatego w
-release znajduje się również stały link do pełnego diffu względem upstreamu.
+Przed budowaniem można wyświetlić pełną różnicę względem zapisanego upstreamu:
 
-## Instalacja
+```powershell
+$upstream = (Get-Content .fork/upstream-commit).Trim()
+git diff --stat "$upstream...HEAD"
+git diff "$upstream...HEAD"
+```
 
-1. Rozpakuj zweryfikowany ZIP.
+## 2. Sprawdzenie wymagań
+
+Ta szybka komenda niczego nie buduje:
+
+```powershell
+.\BUILD-PASSKEY-PLUGIN.cmd -CheckOnly
+```
+
+## 3. Zbudowanie paczki
+
+```powershell
+.\BUILD-PASSKEY-PLUGIN.cmd
+```
+
+Skrypt kolejno:
+
+1. sprawdza wersje narzędzi i czystość śledzonych plików Git;
+2. potwierdza, że zapisany commit upstreamu jest przodkiem bieżącego commita;
+3. wykonuje `npm ci`, więc używa dokładnych wersji z `package-lock.json`;
+4. buduje natywny plugin Rust i aplikację desktopową;
+5. tworzy jednorazowy certyfikat testowy, podpisuje AppX i usuwa prywatny klucz;
+6. dodaje do ZIP-a `SOURCE.json`, `SBOM.cdx.json` i `SHA256SUMS.txt`.
+
+Podpis obejmuje cały pakiet AppX, więc Windows wykryje każdą zmianę pliku wewnątrz paczki.
+Wewnętrzne pliki EXE nie są podpisywane osobno; dzięki temu build nie wymaga trybu deweloperskiego
+ani uprawnień do tworzenia dowiązań symbolicznych.
+
+Wynik znajduje się w:
+
+```text
+dist\passkey-plugin\Bitwarden-Passkey-Plugin-<wersja>-local.<commit>-x64.zip
+```
+
+Obok powstaje plik `.sha256.txt`. Po ponownym pobraniu lub skopiowaniu ZIP-a można sprawdzić go
+bez rozpakowywania:
+
+```powershell
+$zip = Get-ChildItem .\dist\passkey-plugin\*.zip | Select-Object -First 1
+$expected = (Get-Content "$($zip.FullName).sha256.txt").Split(' ')[0]
+$actual = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw "Niezgodna suma SHA-256" }
+"SHA-256 poprawne: $actual"
+```
+
+Przy kolejnym buildzie po poprawnym `npm ci` można oszczędzić czas:
+
+```powershell
+.\BUILD-PASSKEY-PLUGIN.cmd -SkipNpmCi
+```
+
+Pełny build bez tej opcji jest zalecany do paczki przeznaczonej do instalacji.
+
+## 4. Instalacja
+
+1. Rozpakuj zbudowany ZIP.
 2. Uruchom `Install-Bitwarden-PasskeyPlugin.cmd`.
 3. Zaakceptuj UAC administratora.
-4. Instalator ponownie sprawdzi sumy SHA-256 plików wewnątrz paczki, doda dołączony certyfikat do
+4. Instalator sprawdzi sumy SHA-256 wszystkich plików, doda dołączony certyfikat do
    `LocalMachine\TrustedPeople` i zainstaluje AppX.
 5. Uruchom Bitwarden z menu Start i odblokuj sejf.
 6. Otwórz `ms-settings:passkeys-advancedoptions` i włącz Bitwarden na liście providerów.
@@ -53,5 +107,5 @@ Get-ChildItem Cert:\LocalMachine\TrustedPeople |
   Remove-Item
 ```
 
-Certyfikat jest generowany od nowa dla każdego release. Po odinstalowaniu paczki usuń go z magazynu
-`TrustedPeople`.
+Certyfikat jest generowany od nowa dla każdego lokalnego builda. Po odinstalowaniu paczki usuń go
+z magazynu `TrustedPeople`.
