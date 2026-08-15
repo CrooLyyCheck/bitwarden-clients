@@ -1,7 +1,35 @@
-> [!IMPORTANT]
-> This is an unofficial fork. Its release branch differs from upstream only in the changes
-> documented in [FORK.md](FORK.md). No prebuilt binary needs to be trusted: the Windows passkey
-> test package can be built locally with one command using the public source and lockfile.
+# Nieoficjalny fork: plugin passkey dla Windows
+
+> [!WARNING]
+> To nie jest oficjalne wydanie Bitwarden. Kod pluginu pochodzi z upstreamu, a fork domyślnie
+> włącza eksperymentalną funkcję Windows. Dokładny opis zmian znajduje się w [FORK.md](FORK.md).
+
+## Zbuduj paczkę samodzielnie
+
+Nie musisz pobierać ani ufać gotowej binarce. Na Windows sklonuj repozytorium, wybierz niezmienny
+tag źródłowy i uruchom jedną komendę:
+
+```powershell
+git clone https://github.com/CrooLyyCheck/bitwarden-clients.git
+cd bitwarden-clients
+git switch --detach passkey-plugin-v2026.8.0-fork.3
+
+.\BUILD-PASSKEY-PLUGIN.cmd -CheckOnly
+.\BUILD-PASSKEY-PLUGIN.cmd
+```
+
+Gotowy ZIP i jego suma SHA-256 pojawią się w `dist\passkey-plugin`. Paczka zawiera również
+`SOURCE.json` z dokładnymi commitami, SBOM CycloneDX i sumy wszystkich plików. Skrypt używa wersji
+z `package-lock.json`, podpisuje cały AppX jednorazowym certyfikatem testowym i usuwa prywatny klucz
+po zakończeniu.
+
+Przed rozpoczęciem zainstaluj narzędzia wymienione w
+[polskiej instrukcji budowania i instalacji](docs/windows-passkey-plugin-install-pl.md). Możesz też
+zobaczyć [pełną różnicę względem oryginalnego repozytorium](https://github.com/bitwarden/clients/compare/51c7e4c650cec8d7f0cf53e297c484625ef5f210...CrooLyyCheck%3Abitwarden-clients%3Amain).
+
+---
+
+## Oryginalna dokumentacja Bitwarden
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/bitwarden/brand/main/screenshots/apps-combo-logo.png" alt="Bitwarden" />
