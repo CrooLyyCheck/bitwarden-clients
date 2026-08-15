@@ -1,13 +1,18 @@
-# Nieoficjalny fork: plugin passkey dla Windows
+# Unofficial fork: Windows passkey plugin
 
 > [!WARNING]
-> To nie jest oficjalne wydanie Bitwarden. Kod pluginu pochodzi z upstreamu, a fork domyślnie
-> włącza eksperymentalną funkcję Windows. Dokładny opis zmian znajduje się w [FORK.md](FORK.md).
+> This is not an official Bitwarden release. The plugin code comes from upstream, while this fork
+> enables the experimental Windows feature by default. See [FORK.md](FORK.md) for an exact
+> description of the changes.
 
-## Zbuduj paczkę samodzielnie
+## Build the package yourself
 
-Nie musisz pobierać ani ufać gotowej binarce. Na Windows sklonuj repozytorium, wybierz niezmienny
-tag źródłowy i uruchom jedną komendę:
+You do not need to download or trust a prebuilt binary. On Windows, clone the repository, check out
+the immutable source tag, and run one command:
+
+Prerequisites: Windows 11 x64, Git, Node.js 24.x, stable Rust with the
+`x86_64-pc-windows-msvc` target, Visual Studio 2022 Build Tools with **Desktop development with
+C++**, the Windows 10 or 11 SDK, and about 15 GB of free disk space.
 
 ```powershell
 git clone https://github.com/CrooLyyCheck/bitwarden-clients.git
@@ -18,18 +23,18 @@ git switch --detach passkey-plugin-v2026.8.0-fork.3
 .\BUILD-PASSKEY-PLUGIN.cmd
 ```
 
-Gotowy ZIP i jego suma SHA-256 pojawią się w `dist\passkey-plugin`. Paczka zawiera również
-`SOURCE.json` z dokładnymi commitami, SBOM CycloneDX i sumy wszystkich plików. Skrypt używa wersji
-z `package-lock.json`, podpisuje cały AppX jednorazowym certyfikatem testowym i usuwa prywatny klucz
-po zakończeniu.
+The resulting ZIP and its SHA-256 checksum will be written to `dist\passkey-plugin`. The package
+also includes `SOURCE.json` with the exact commits, a CycloneDX SBOM, and checksums for every file.
+The script uses the dependency versions locked in `package-lock.json`, signs the complete AppX with
+a one-time test certificate, and removes the private key when the build finishes.
 
-Przed rozpoczęciem zainstaluj narzędzia wymienione w
-[polskiej instrukcji budowania i instalacji](docs/windows-passkey-plugin-install-pl.md). Możesz też
-zobaczyć [pełną różnicę względem oryginalnego repozytorium](https://github.com/bitwarden/clients/compare/51c7e4c650cec8d7f0cf53e297c484625ef5f210...CrooLyyCheck%3Abitwarden-clients%3Amain).
+More information is available in the
+[detailed Polish build and installation guide](docs/windows-passkey-plugin-install-pl.md). You can
+also review the [complete diff against the original repository](https://github.com/bitwarden/clients/compare/51c7e4c650cec8d7f0cf53e297c484625ef5f210...CrooLyyCheck%3Abitwarden-clients%3Amain).
 
 ---
 
-## Oryginalna dokumentacja Bitwarden
+## Original Bitwarden documentation
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/bitwarden/brand/main/screenshots/apps-combo-logo.png" alt="Bitwarden" />
